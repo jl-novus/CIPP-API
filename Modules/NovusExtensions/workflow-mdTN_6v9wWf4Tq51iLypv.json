@@ -1,0 +1,684 @@
+{
+  "updatedAt": "2026-01-23T09:33:54.925Z",
+  "createdAt": "2026-01-23T09:15:29.705Z",
+  "id": "mdTN_6v9wWf4Tq51iLypv",
+  "name": "CIPP Security Alert AI Analysis",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cipp-security-alert",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "8b5d6d10-029e-4ef1-b2da-67e05247e5ab",
+      "name": "Webhook Receiver",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -1408,
+        208
+      ],
+      "webhookId": "cipp-security-alert"
+    },
+    {
+      "parameters": {
+        "jsCode": "// FIXED: HMAC Validation for n8n Code Node\n// Headers are accessed differently in n8n webhook flow\n\n// Hardcoded webhook secret (temporary - for testing)\nconst webhookSecret = \"81eaa7f5-e1f8-4452-9cc1-f91e78d561f6\";\n\n// Get the first (and only) item from the webhook\nconst item = $input.first();\n\n// In n8n, headers from webhook are in the item.json.headers object\n// OR sometimes in $node[\"Webhook Receiver\"].json.headers\nconst headers = item.json.headers || item.headers || {};\n\n// Get the signature and timestamp from headers\nconst receivedSignature = headers['x-cipp-signature'];\nconst timestamp = headers['x-cipp-timestamp'];\n\n// Debug: Log what we received\nconsole.log('Headers object:', JSON.stringify(headers, null, 2));\nconsole.log('Received signature:', receivedSignature);\nconsole.log('Timestamp:', timestamp);\n\n// Validate timestamp (reject requests older than 5 minutes)\nif (timestamp) {\n  const requestTime = new Date(timestamp);\n  const now = new Date();\n  const ageMinutes = (now - requestTime) / 1000 / 60;\n\n  if (ageMinutes > 5) {\n    throw new Error(`Webhook timestamp too old: ${ageMinutes.toFixed(2)} minutes (max: 5)`);\n  }\n}\n\n// Get the body data (remove headers from the payload before signing)\nconst bodyData = { ...item.json };\ndelete bodyData.headers; // Don't include headers in signature calculation\n\n// Stringify the payload\nconst payload = JSON.stringify(bodyData, null, 0);\n\n// Calculate expected HMAC signature\nconst crypto = require('crypto');\nconst hmac = crypto.createHmac('sha256', webhookSecret);\nhmac.update(payload);\nconst expectedSignature = hmac.digest('base64');\n\n// Compare signatures\nif (receivedSignature && receivedSignature !== expectedSignature) {\n  // Log details for debugging\n  console.log('HMAC Validation Failed');\n  console.log('Expected:', expectedSignature);\n  console.log('Received:', receivedSignature);\n  console.log('Payload length:', payload.length);\n  console.log('Payload preview:', payload.substring(0, 200));\n\n  throw new Error('Invalid webhook signature - authentication failed');\n}\n\n// Signature valid (or not provided for testing) - return the payload\nreturn {\n  json: {\n    ...bodyData,\n    validatedAt: new Date().toISOString(),\n    webhookAge: timestamp ? ageMinutes : 0,\n    hmacValidated: receivedSignature ? true : false\n  }\n};"
+      },
+      "id": "648c9877-6e5f-44e5-aa43-f5339e6d3148",
+      "name": "Validate HMAC Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1200,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"eventType\"]}}",
+              "value2": "SecurityAlert"
+            }
+          ]
+        }
+      },
+      "id": "a13b6633-39ff-4e56-9fa2-890ca657b674",
+      "name": "Route by Event Type",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -1008,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const alertData = $input.first().json;\n\n// Extract key information\nconst tenant = alertData.tenant;\nconst alert = alertData.alert;\nconst context = alertData.context || {};\n\n// Build compliance requirements string\nconst complianceReqs = tenant.complianceRequirements?.join(', ') || 'None';\n\n// Build system prompt\nconst systemPrompt = `You are a senior Microsoft 365 security analyst working for Novus Technology Integration, a managed service provider (MSP) specializing in healthcare and compliance-focused clients.\n\nYour role is to analyze security alerts and provide actionable recommendations while considering:\n- Compliance requirements (HIPAA, HITECH, SOC2)\n- Client risk profiles\n- Severity and urgency\n- Automation potential\n\nRespond ONLY with valid JSON in this exact format:\n{\n  \"severity\": \"critical|high|medium|low\",\n  \"riskScore\": 0-100,\n  \"analysis\": \"detailed analysis of the alert\",\n  \"complianceImpact\": {\n    \"HIPAA\": {\n      \"riskLevel\": \"critical|high|medium|low|none\",\n      \"violatedControls\": [{\"control\": \"164.xxx\", \"description\": \"...\", \"impact\": \"...\"}],\n      \"breachNotificationRequired\": \"yes|potentially|no\",\n      \"immediateActions\": [\"action1\", \"action2\"]\n    }\n  },\n  \"recommendedActions\": [\n    {\n      \"action\": \"description of action\",\n      \"automatable\": true|false,\n      \"urgency\": \"immediate|within_24h|routine\",\n      \"cippdEndpoint\": \"/api/ExecSomeAction\",\n      \"cippdPayload\": {},\n      \"rationale\": \"why this action is needed\"\n    }\n  ],\n  \"requiresHumanReview\": true|false,\n  \"humanReviewReason\": \"explanation if true\",\n  \"confidence\": 0-100\n}`;\n\n// Build user prompt with alert details\nconst userPrompt = `## Tenant Information\n- **Name**: ${tenant.name}\n- **Domain**: ${tenant.defaultDomain}\n- **Compliance**: ${complianceReqs}\n- **Risk Profile**: ${tenant.riskProfile}\n\n## Alert Details\n- **Type**: ${alert.type}\n- **Severity**: ${alert.severity}\n- **Title**: ${alert.title}\n\n${alert.description ? `**Description**: ${alert.description}` : ''}\n\n${alert.affectedResources ? `**Affected Resources**: ${JSON.stringify(alert.affectedResources, null, 2)}` : ''}\n\n## Context\n${context.secureScore ? `**Secure Score**: ${context.secureScore.current}/${context.secureScore.max} (${context.secureScore.percentage}%)` : ''}\n\n${context.tenantHistory ? `**Similar Alerts (7 days)**: ${context.tenantHistory.similarAlertsLast7Days}` : ''}\n\n${context.tenantHistory ? `**Similar Alerts (30 days)**: ${context.tenantHistory.similarAlertsLast30Days}` : ''}\n\n${context.relatedAlerts?.length > 0 ? `**Related Recent Alerts**: ${context.relatedAlerts.length} found` : ''}\n\n## Task\nAnalyze this security alert and provide recommendations. Consider the compliance requirements and provide specific, actionable guidance.`;\n\n// Return structured payload for Claude API\nreturn {\n  json: {\n    model: 'claude-sonnet-4-5-20250929',\n    max_tokens: 4096,\n    temperature: 0.3,\n    system: systemPrompt,\n    messages: [\n      {\n        role: 'user',\n        content: userPrompt\n      }\n    ],\n    // Pass through original data for later nodes\n    _originalAlert: alertData,\n    _correlationId: alertData.metadata?.correlationId\n  }\n};"
+      },
+      "id": "ee492758-28fc-4eb0-9fe1-76315eb0b68a",
+      "name": "Build AI Analysis Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "219b1373-0c0a-40eb-8920-e86d504e6ab0",
+      "name": "Claude AI Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        -608,
+        112
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "ZFlIkAXvsAfWuCsx",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const claudeResponse = $input.first().json;\nconst originalAlert = $node[\"Build AI Analysis Prompt\"].json._originalAlert;\nconst correlationId = $node[\"Build AI Analysis Prompt\"].json._correlationId;\n\n// Extract the AI response text from Claude's response format\nconst aiResponseText = claudeResponse.content[0].text;\n\n// Parse the JSON response from Claude\nlet aiDecision;\ntry {\n  aiDecision = JSON.parse(aiResponseText);\n} catch (error) {\n  // If JSON parsing fails, create a fallback structure\n  aiDecision = {\n    severity: 'high',\n    riskScore: 75,\n    analysis: aiResponseText,\n    recommendedActions: [],\n    requiresHumanReview: true,\n    humanReviewReason: 'Failed to parse AI response as JSON',\n    confidence: 50\n  };\n}\n\n// Merge AI decision with original alert data\nreturn {\n  json: {\n    correlationId: correlationId,\n    timestamp: new Date().toISOString(),\n    tenant: originalAlert.tenant,\n    alert: originalAlert.alert,\n    context: originalAlert.context,\n    aiDecision: aiDecision,\n    claudeMetadata: {\n      model: claudeResponse.model,\n      usage: claudeResponse.usage,\n      stopReason: claudeResponse.stop_reason\n    }\n  }\n};"
+      },
+      "id": "53456b93-7d44-4ad8-8230-388ff9b10ce1",
+      "name": "Parse AI Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"aiDecision\"][\"severity\"]}}",
+              "value2": "critical"
+            }
+          ],
+          "number": [
+            {
+              "value1": "={{$json[\"aiDecision\"][\"confidence\"]}}",
+              "operation": "largerEqual",
+              "value2": 90
+            }
+          ]
+        }
+      },
+      "id": "07aa7e2a-3112-4b31-9ca1-151232eaf384",
+      "name": "Route by AI Decision",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -208,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_TEAMS_WEBHOOK_URL_HERE",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"@type\": \"MessageCard\",\n  \"@context\": \"https://schema.org/extensions\",\n  \"summary\": \"{{ $json.alert.title }}\",\n  \"themeColor\": \"FF0000\",\n  \"title\": \"🚨 CIPP Security Alert\",\n  \"sections\": [\n    {\n      \"activityTitle\": \"{{ $json.tenant.name }}\",\n      \"activitySubtitle\": \"{{ $json.alert.title }}\",\n      \"text\": \"**Severity:** {{ $json.aiDecision.severity }}\\n\\n**Analysis:** {{ $json.aiDecision.analysis }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "ccf02d69-62be-4a57-b2ce-70a3ecc85467",
+      "name": "Send Teams Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare comprehensive archive record\nconst archiveRecord = {\n  correlationId: $json.correlationId,\n  timestamp: $json.timestamp,\n  tenant: $json.tenant,\n  alert: $json.alert,\n  context: $json.context,\n  aiDecision: $json.aiDecision,\n  claudeMetadata: $json.claudeMetadata\n};\n\n// For Week 2, we'll just log this\n// In Week 3, connect to Azure Blob Storage node\nreturn {\n  json: {\n    archiveRecord: archiveRecord,\n    fileName: `cipp-ai-decision-${archiveRecord.correlationId}.json`,\n    message: 'Alert processed and ready for archival'\n  }\n};"
+      },
+      "id": "fd83c706-9ba9-4ce6-b3f5-88913af58c1a",
+      "name": "Prepare Archive Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Receiver": {
+      "main": [
+        [
+          {
+            "node": "Validate HMAC Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate HMAC Signature": {
+      "main": [
+        [
+          {
+            "node": "Route by Event Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Event Type": {
+      "main": [
+        [
+          {
+            "node": "Build AI Analysis Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Archive Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Analysis Prompt": {
+      "main": [
+        [
+          {
+            "node": "Claude AI Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude AI Analysis": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Decision": {
+      "main": [
+        [
+          {
+            "node": "Route by AI Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by AI Decision": {
+      "main": [
+        [
+          {
+            "node": "Send Teams Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Archive Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {
+    "Webhook Receiver": [
+      {
+        "json": {
+          "headers": {
+            "host": "n8n-nov-sb1-u65757.vm.elestio.app",
+            "x-real-ip": "64.58.101.56",
+            "x-forwarded-for": "64.58.101.56",
+            "x-forwarded-proto": "https",
+            "x-forwarded-port": "443",
+            "connection": "close",
+            "content-length": "867",
+            "x-cipp-timestamp": "2026-01-23T09:28:15.1889312Z",
+            "x-cipp-event-type": "SecurityAlert",
+            "x-cipp-signature": "YPfiZjdphnH4171zRlju6Z9kDfgZg+cn9Ch+0S9teE4=",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.26100; en-US) PowerShell/7.5.4",
+            "accept-encoding": "gzip, deflate, br",
+            "content-type": "application/json"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "eventType": "SecurityAlert",
+            "source": "CIPP-Test",
+            "context": {
+              "secureScore": {
+                "percentage": 72.06,
+                "current": 245,
+                "max": 340
+              }
+            },
+            "version": "1.0",
+            "metadata": {
+              "cippdUrl": "https://cipp.novustek.io",
+              "correlationId": "test-234da113-0726-4b05-bff5-6e2304ae045d"
+            },
+            "alert": {
+              "id": "test-alert-123",
+              "title": "Test Security Alert for n8n Validation",
+              "severity": "high",
+              "description": "Testing HMAC authentication and Claude AI analysis",
+              "type": "TestSecurityAlert"
+            },
+            "eventSubType": "TestAlert",
+            "timestamp": "2026-01-23T09:28:15.1677428Z",
+            "tenant": {
+              "name": "Test Client",
+              "id": "test-tenant-id",
+              "complianceRequirements": [
+                "HIPAA"
+              ],
+              "riskProfile": "high",
+              "defaultDomain": "testclient.onmicrosoft.com"
+            }
+          },
+          "webhookUrl": "https://n8n-nov-sb1-u65757.vm.elestio.app/webhook/cipp-security-alert",
+          "executionMode": "production"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "versionId": "15ff7401-71a8-4201-9eaf-5f3fa84b8ba1",
+  "activeVersionId": "15ff7401-71a8-4201-9eaf-5f3fa84b8ba1",
+  "versionCounter": 18,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-01-23T09:15:29.705Z",
+      "createdAt": "2026-01-23T09:15:29.705Z",
+      "role": "workflow:owner",
+      "workflowId": "mdTN_6v9wWf4Tq51iLypv",
+      "projectId": "OkjLXO2tJqQ6BLS9",
+      "project": {
+        "updatedAt": "2026-01-17T04:02:50.985Z",
+        "createdAt": "2026-01-17T04:02:12.787Z",
+        "id": "OkjLXO2tJqQ6BLS9",
+        "name": "admin admin <jon@novustek.net>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f4d4d6cf-18b7-46ab-93e7-0767e4a6be36",
+        "projectRelations": [
+          {
+            "updatedAt": "2026-01-17T04:02:12.787Z",
+            "createdAt": "2026-01-17T04:02:12.787Z",
+            "userId": "f4d4d6cf-18b7-46ab-93e7-0767e4a6be36",
+            "projectId": "OkjLXO2tJqQ6BLS9",
+            "user": {
+              "updatedAt": "2026-01-23T05:39:28.292Z",
+              "createdAt": "2026-01-17T04:02:12.391Z",
+              "id": "f4d4d6cf-18b7-46ab-93e7-0767e4a6be36",
+              "email": "jon@novustek.net",
+              "firstName": "admin",
+              "lastName": "admin",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2026-01-17T04:53:22.022Z",
+                "personalization_survey_n8n_version": "2.3.6",
+                "companySize": "<20",
+                "companyType": "systems-integrator",
+                "role": "business-owner",
+                "reportedSource": "youtube"
+              },
+              "settings": {
+                "userActivated": false,
+                "easyAIWorkflowOnboarded": true
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-01-23",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-01-23T09:34:02.376Z",
+    "createdAt": "2026-01-23T09:33:54.926Z",
+    "versionId": "15ff7401-71a8-4201-9eaf-5f3fa84b8ba1",
+    "workflowId": "mdTN_6v9wWf4Tq51iLypv",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "cipp-security-alert",
+          "responseMode": "lastNode",
+          "options": {}
+        },
+        "id": "8b5d6d10-029e-4ef1-b2da-67e05247e5ab",
+        "name": "Webhook Receiver",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [
+          -1408,
+          208
+        ],
+        "webhookId": "cipp-security-alert"
+      },
+      {
+        "parameters": {
+          "jsCode": "// FIXED: HMAC Validation for n8n Code Node\n// Headers are accessed differently in n8n webhook flow\n\n// Hardcoded webhook secret (temporary - for testing)\nconst webhookSecret = \"81eaa7f5-e1f8-4452-9cc1-f91e78d561f6\";\n\n// Get the first (and only) item from the webhook\nconst item = $input.first();\n\n// In n8n, headers from webhook are in the item.json.headers object\n// OR sometimes in $node[\"Webhook Receiver\"].json.headers\nconst headers = item.json.headers || item.headers || {};\n\n// Get the signature and timestamp from headers\nconst receivedSignature = headers['x-cipp-signature'];\nconst timestamp = headers['x-cipp-timestamp'];\n\n// Debug: Log what we received\nconsole.log('Headers object:', JSON.stringify(headers, null, 2));\nconsole.log('Received signature:', receivedSignature);\nconsole.log('Timestamp:', timestamp);\n\n// Validate timestamp (reject requests older than 5 minutes)\nif (timestamp) {\n  const requestTime = new Date(timestamp);\n  const now = new Date();\n  const ageMinutes = (now - requestTime) / 1000 / 60;\n\n  if (ageMinutes > 5) {\n    throw new Error(`Webhook timestamp too old: ${ageMinutes.toFixed(2)} minutes (max: 5)`);\n  }\n}\n\n// Get the body data (remove headers from the payload before signing)\nconst bodyData = { ...item.json };\ndelete bodyData.headers; // Don't include headers in signature calculation\n\n// Stringify the payload\nconst payload = JSON.stringify(bodyData, null, 0);\n\n// Calculate expected HMAC signature\nconst crypto = require('crypto');\nconst hmac = crypto.createHmac('sha256', webhookSecret);\nhmac.update(payload);\nconst expectedSignature = hmac.digest('base64');\n\n// Compare signatures\nif (receivedSignature && receivedSignature !== expectedSignature) {\n  // Log details for debugging\n  console.log('HMAC Validation Failed');\n  console.log('Expected:', expectedSignature);\n  console.log('Received:', receivedSignature);\n  console.log('Payload length:', payload.length);\n  console.log('Payload preview:', payload.substring(0, 200));\n\n  throw new Error('Invalid webhook signature - authentication failed');\n}\n\n// Signature valid (or not provided for testing) - return the payload\nreturn {\n  json: {\n    ...bodyData,\n    validatedAt: new Date().toISOString(),\n    webhookAge: timestamp ? ageMinutes : 0,\n    hmacValidated: receivedSignature ? true : false\n  }\n};"
+        },
+        "id": "648c9877-6e5f-44e5-aa43-f5339e6d3148",
+        "name": "Validate HMAC Signature",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -1200,
+          208
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "string": [
+              {
+                "value1": "={{$json[\"eventType\"]}}",
+                "value2": "SecurityAlert"
+              }
+            ]
+          }
+        },
+        "id": "a13b6633-39ff-4e56-9fa2-890ca657b674",
+        "name": "Route by Event Type",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [
+          -1008,
+          208
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const alertData = $input.first().json;\n\n// Extract key information\nconst tenant = alertData.tenant;\nconst alert = alertData.alert;\nconst context = alertData.context || {};\n\n// Build compliance requirements string\nconst complianceReqs = tenant.complianceRequirements?.join(', ') || 'None';\n\n// Build system prompt\nconst systemPrompt = `You are a senior Microsoft 365 security analyst working for Novus Technology Integration, a managed service provider (MSP) specializing in healthcare and compliance-focused clients.\n\nYour role is to analyze security alerts and provide actionable recommendations while considering:\n- Compliance requirements (HIPAA, HITECH, SOC2)\n- Client risk profiles\n- Severity and urgency\n- Automation potential\n\nRespond ONLY with valid JSON in this exact format:\n{\n  \"severity\": \"critical|high|medium|low\",\n  \"riskScore\": 0-100,\n  \"analysis\": \"detailed analysis of the alert\",\n  \"complianceImpact\": {\n    \"HIPAA\": {\n      \"riskLevel\": \"critical|high|medium|low|none\",\n      \"violatedControls\": [{\"control\": \"164.xxx\", \"description\": \"...\", \"impact\": \"...\"}],\n      \"breachNotificationRequired\": \"yes|potentially|no\",\n      \"immediateActions\": [\"action1\", \"action2\"]\n    }\n  },\n  \"recommendedActions\": [\n    {\n      \"action\": \"description of action\",\n      \"automatable\": true|false,\n      \"urgency\": \"immediate|within_24h|routine\",\n      \"cippdEndpoint\": \"/api/ExecSomeAction\",\n      \"cippdPayload\": {},\n      \"rationale\": \"why this action is needed\"\n    }\n  ],\n  \"requiresHumanReview\": true|false,\n  \"humanReviewReason\": \"explanation if true\",\n  \"confidence\": 0-100\n}`;\n\n// Build user prompt with alert details\nconst userPrompt = `## Tenant Information\n- **Name**: ${tenant.name}\n- **Domain**: ${tenant.defaultDomain}\n- **Compliance**: ${complianceReqs}\n- **Risk Profile**: ${tenant.riskProfile}\n\n## Alert Details\n- **Type**: ${alert.type}\n- **Severity**: ${alert.severity}\n- **Title**: ${alert.title}\n\n${alert.description ? `**Description**: ${alert.description}` : ''}\n\n${alert.affectedResources ? `**Affected Resources**: ${JSON.stringify(alert.affectedResources, null, 2)}` : ''}\n\n## Context\n${context.secureScore ? `**Secure Score**: ${context.secureScore.current}/${context.secureScore.max} (${context.secureScore.percentage}%)` : ''}\n\n${context.tenantHistory ? `**Similar Alerts (7 days)**: ${context.tenantHistory.similarAlertsLast7Days}` : ''}\n\n${context.tenantHistory ? `**Similar Alerts (30 days)**: ${context.tenantHistory.similarAlertsLast30Days}` : ''}\n\n${context.relatedAlerts?.length > 0 ? `**Related Recent Alerts**: ${context.relatedAlerts.length} found` : ''}\n\n## Task\nAnalyze this security alert and provide recommendations. Consider the compliance requirements and provide specific, actionable guidance.`;\n\n// Return structured payload for Claude API\nreturn {\n  json: {\n    model: 'claude-sonnet-4-5-20250929',\n    max_tokens: 4096,\n    temperature: 0.3,\n    system: systemPrompt,\n    messages: [\n      {\n        role: 'user',\n        content: userPrompt\n      }\n    ],\n    // Pass through original data for later nodes\n    _originalAlert: alertData,\n    _correlationId: alertData.metadata?.correlationId\n  }\n};"
+        },
+        "id": "ee492758-28fc-4eb0-9fe1-76315eb0b68a",
+        "name": "Build AI Analysis Prompt",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -800,
+          112
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.anthropic.com/v1/messages",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "anthropicApi",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "anthropic-version",
+                "value": "2023-06-01"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json) }}",
+          "options": {}
+        },
+        "id": "219b1373-0c0a-40eb-8920-e86d504e6ab0",
+        "name": "Claude AI Analysis",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 3,
+        "position": [
+          -608,
+          112
+        ],
+        "credentials": {
+          "anthropicApi": {
+            "id": "ZFlIkAXvsAfWuCsx",
+            "name": "Anthropic account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const claudeResponse = $input.first().json;\nconst originalAlert = $node[\"Build AI Analysis Prompt\"].json._originalAlert;\nconst correlationId = $node[\"Build AI Analysis Prompt\"].json._correlationId;\n\n// Extract the AI response text from Claude's response format\nconst aiResponseText = claudeResponse.content[0].text;\n\n// Parse the JSON response from Claude\nlet aiDecision;\ntry {\n  aiDecision = JSON.parse(aiResponseText);\n} catch (error) {\n  // If JSON parsing fails, create a fallback structure\n  aiDecision = {\n    severity: 'high',\n    riskScore: 75,\n    analysis: aiResponseText,\n    recommendedActions: [],\n    requiresHumanReview: true,\n    humanReviewReason: 'Failed to parse AI response as JSON',\n    confidence: 50\n  };\n}\n\n// Merge AI decision with original alert data\nreturn {\n  json: {\n    correlationId: correlationId,\n    timestamp: new Date().toISOString(),\n    tenant: originalAlert.tenant,\n    alert: originalAlert.alert,\n    context: originalAlert.context,\n    aiDecision: aiDecision,\n    claudeMetadata: {\n      model: claudeResponse.model,\n      usage: claudeResponse.usage,\n      stopReason: claudeResponse.stop_reason\n    }\n  }\n};"
+        },
+        "id": "53456b93-7d44-4ad8-8230-388ff9b10ce1",
+        "name": "Parse AI Decision",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -400,
+          112
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "string": [
+              {
+                "value1": "={{$json[\"aiDecision\"][\"severity\"]}}",
+                "value2": "critical"
+              }
+            ],
+            "number": [
+              {
+                "value1": "={{$json[\"aiDecision\"][\"confidence\"]}}",
+                "operation": "largerEqual",
+                "value2": 90
+              }
+            ]
+          }
+        },
+        "id": "07aa7e2a-3112-4b31-9ca1-151232eaf384",
+        "name": "Route by AI Decision",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [
+          -208,
+          112
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "YOUR_TEAMS_WEBHOOK_URL_HERE",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"@type\": \"MessageCard\",\n  \"@context\": \"https://schema.org/extensions\",\n  \"summary\": \"{{ $json.alert.title }}\",\n  \"themeColor\": \"FF0000\",\n  \"title\": \"🚨 CIPP Security Alert\",\n  \"sections\": [\n    {\n      \"activityTitle\": \"{{ $json.tenant.name }}\",\n      \"activitySubtitle\": \"{{ $json.alert.title }}\",\n      \"text\": \"**Severity:** {{ $json.aiDecision.severity }}\\n\\n**Analysis:** {{ $json.aiDecision.analysis }}\"\n    }\n  ]\n}",
+          "options": {}
+        },
+        "id": "ccf02d69-62be-4a57-b2ce-70a3ecc85467",
+        "name": "Send Teams Alert",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 3,
+        "position": [
+          0,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Prepare comprehensive archive record\nconst archiveRecord = {\n  correlationId: $json.correlationId,\n  timestamp: $json.timestamp,\n  tenant: $json.tenant,\n  alert: $json.alert,\n  context: $json.context,\n  aiDecision: $json.aiDecision,\n  claudeMetadata: $json.claudeMetadata\n};\n\n// For Week 2, we'll just log this\n// In Week 3, connect to Azure Blob Storage node\nreturn {\n  json: {\n    archiveRecord: archiveRecord,\n    fileName: `cipp-ai-decision-${archiveRecord.correlationId}.json`,\n    message: 'Alert processed and ready for archival'\n  }\n};"
+        },
+        "id": "fd83c706-9ba9-4ce6-b3f5-88913af58c1a",
+        "name": "Prepare Archive Data",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          0,
+          208
+        ]
+      }
+    ],
+    "connections": {
+      "Webhook Receiver": {
+        "main": [
+          [
+            {
+              "node": "Validate HMAC Signature",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate HMAC Signature": {
+        "main": [
+          [
+            {
+              "node": "Route by Event Type",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route by Event Type": {
+        "main": [
+          [
+            {
+              "node": "Build AI Analysis Prompt",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Prepare Archive Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build AI Analysis Prompt": {
+        "main": [
+          [
+            {
+              "node": "Claude AI Analysis",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Claude AI Analysis": {
+        "main": [
+          [
+            {
+              "node": "Parse AI Decision",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse AI Decision": {
+        "main": [
+          [
+            {
+              "node": "Route by AI Decision",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route by AI Decision": {
+        "main": [
+          [
+            {
+              "node": "Send Teams Alert",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Prepare Archive Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "admin admin",
+    "name": "Version 15ff7401",
+    "description": "",
+    "autosaved": true,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-01-23T09:34:02.374Z",
+        "id": 2,
+        "workflowId": "mdTN_6v9wWf4Tq51iLypv",
+        "versionId": "15ff7401-71a8-4201-9eaf-5f3fa84b8ba1",
+        "event": "activated",
+        "userId": "f4d4d6cf-18b7-46ab-93e7-0767e4a6be36"
+      }
+    ]
+  }
+}

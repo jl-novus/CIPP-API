@@ -1,0 +1,141 @@
+{
+  "updatedAt": "2026-01-23T08:56:04.03Z",
+  "createdAt": "2026-01-23T07:09:38.951Z",
+  "id": "goU4aUPGsb_OpsoXtGVuw",
+  "name": "CIPP-Security-Alert-Dev",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cipp-security-alert",
+        "responseMode": "lastNode",
+        "responseData": "allEntries",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "80db0d8a-4f0d-4028-8095-271f70a79e85",
+      "name": "Webhook",
+      "webhookId": "95a72583-fbe1-4832-9dea-e8b3d8d130ba"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get webhook secret from n8n credentials\nconst webhookSecret = $credentials.cippWebhookSecret;\n\n// Get the first (and only) item from the webhook\nconst item = $input.first();\n\n// Get the raw body and signature from headers\nconst payload = JSON.stringify(item.json);\nconst receivedSignature = item.headers['x-cipp-signature'];\nconst timestamp = item.headers['x-cipp-timestamp'];\n\n// Validate timestamp (reject requests older than 5 minutes)\nconst requestTime = new Date(timestamp);\nconst now = new Date();\nconst ageMinutes = (now - requestTime) / 1000 / 60;\n\nif (ageMinutes > 5) {\n  throw new Error(`Webhook timestamp too old: ${ageMinutes.toFixed(2)} minutes (max: 5)`);\n}\n\n// Calculate expected HMAC signature\nconst crypto = require('crypto');\nconst hmac = crypto.createHmac('sha256', webhookSecret);\nhmac.update(payload);\nconst expectedSignature = hmac.digest('base64');\n\n// Compare signatures\nif (receivedSignature !== expectedSignature) {\n  throw new Error('Invalid webhook signature - authentication failed');\n}\n\n// Signature valid - return the payload\nreturn {\n  json: {\n    ...(item.json),\n    validatedAt: new Date().toISOString(),\n    webhookAge: ageMinutes\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "0d0ace76-b962-461b-8f34-f2436f33fc1e",
+      "name": "Validate HMAC Signature",
+      "notesInFlow": false,
+      "alwaysOutputData": false,
+      "executeOnce": false,
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        496,
+        -256
+      ],
+      "id": "a7987dfc-2e30-4555-90e9-edfbad7a82af",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "hfYcZdqVeLRfNywo",
+          "name": "Header Auth account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "52ba7c95-5f96-4f0b-8223-6b5de0574b4a",
+  "activeVersionId": null,
+  "versionCounter": 88,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-01-23T07:09:38.951Z",
+      "createdAt": "2026-01-23T07:09:38.951Z",
+      "role": "workflow:owner",
+      "workflowId": "goU4aUPGsb_OpsoXtGVuw",
+      "projectId": "OkjLXO2tJqQ6BLS9",
+      "project": {
+        "updatedAt": "2026-01-17T04:02:50.985Z",
+        "createdAt": "2026-01-17T04:02:12.787Z",
+        "id": "OkjLXO2tJqQ6BLS9",
+        "name": "admin admin <jon@novustek.net>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f4d4d6cf-18b7-46ab-93e7-0767e4a6be36",
+        "projectRelations": [
+          {
+            "updatedAt": "2026-01-17T04:02:12.787Z",
+            "createdAt": "2026-01-17T04:02:12.787Z",
+            "userId": "f4d4d6cf-18b7-46ab-93e7-0767e4a6be36",
+            "projectId": "OkjLXO2tJqQ6BLS9",
+            "user": {
+              "updatedAt": "2026-01-23T05:39:28.292Z",
+              "createdAt": "2026-01-17T04:02:12.391Z",
+              "id": "f4d4d6cf-18b7-46ab-93e7-0767e4a6be36",
+              "email": "jon@novustek.net",
+              "firstName": "admin",
+              "lastName": "admin",
+              "personalizationAnswers": {
+                "version": "v4",
+                "personalization_survey_submitted_at": "2026-01-17T04:53:22.022Z",
+                "personalization_survey_n8n_version": "2.3.6",
+                "companySize": "<20",
+                "companyType": "systems-integrator",
+                "role": "business-owner",
+                "reportedSource": "youtube"
+              },
+              "settings": {
+                "userActivated": false,
+                "easyAIWorkflowOnboarded": true
+              },
+              "disabled": false,
+              "mfaEnabled": false,
+              "lastActiveAt": "2026-01-23",
+              "isPending": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": null
+}
