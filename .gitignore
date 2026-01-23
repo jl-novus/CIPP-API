@@ -1,9 +1,9 @@
-.github/
+# NOVUS CUSTOM: Removed .github/ to allow custom deployment workflows
 local.settings.json
 tenants.cache.json
 chocoapps.cache
 *.log
-.vscode/
+
 Cache_*
 Logs
 ExcludedTenants
