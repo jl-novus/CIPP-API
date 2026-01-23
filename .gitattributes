@@ -14,4 +14,4 @@
 
 # Novus custom files use 'ours' merge strategy during upstream syncs
 # This protects custom code from being overwritten by upstream changes
-Modules/NovusExtensions/* merge=ours
+Modules/NovusExtensions/** merge=ours
