@@ -1,7 +1,7 @@
 # n8n AI Integration - Implementation Status
 
-**Last Updated**: 2026-01-22
-**Phase**: Week 1 Foundation - COMPLETE ✅
+**Last Updated**: 2026-01-23
+**Phase**: Week 2 - n8n Workflow Implementation (In Progress)
 
 ---
 
@@ -38,7 +38,7 @@ AI-driven security automation integration between CIPP, n8n, and Claude AI for N
 
 | Secret Name | Status | Value |
 |-------------|--------|-------|
-| `N8N-Webhook-URL` | ✅ Set | Placeholder (update after n8n workflow created) |
+| `N8N-Webhook-URL` | ✅ Set | `https://n8n-nov-sb1-u65757.vm.elestio.app/webhook/cipp-security-alert` |
 | `N8N-Webhook-Secret` | ✅ Set | `81eaa7f5-e1f8-4452-9cc1-f91e78d561f6` |
 | `Anthropic-API-Key` | ✅ Set | `sk-ant-api03-...` (configured) |
 
@@ -128,12 +128,12 @@ AI-driven security automation integration between CIPP, n8n, and Claude AI for N
 - **Function App**: `cippdxfje` (westus2)
 
 ### n8n Instance
-- **Platform**: Elestio
-- **Status**: ⏳ Workflow not yet created
-- **Required Environment Variables**:
-  - `CIPP_WEBHOOK_SECRET`: `81eaa7f5-e1f8-4452-9cc1-f91e78d561f6`
-  - `ANTHROPIC_API_KEY`: (already added)
-  - `CIPP_API_URL`: `https://cippdxfje.azurewebsites.net`
+- **Platform**: Elestio (self-hosted community edition)
+- **Status**: ⏳ Workflow creation in progress
+- **Credentials Configured** (n8n Credentials system):
+  - ✅ `CIPP Webhook Secret`: `81eaa7f5-e1f8-4452-9cc1-f91e78d561f6`
+  - ✅ `Anthropic API Key`: Configured
+- **Note**: Community edition doesn't support environment variables - using n8n Credentials instead
 
 ### Claude API
 - **Model**: `claude-sonnet-4-5-20250929`
@@ -255,17 +255,20 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 
 ## Known Issues / TODOs
 
-### Immediate
-- [ ] Update n8n webhook URL in Key Vault after creating workflow
-- [ ] Add n8n environment variables (CIPP_WEBHOOK_SECRET)
-- [ ] Create n8n workflow with HMAC validation node
-- [ ] Test webhook delivery end-to-end
+### Immediate (Week 2 - In Progress)
+- [ ] Create n8n workflow (guide: `N8N_WORKFLOW_GUIDE.md`)
+  - [ ] Node 1: Webhook receiver
+  - [ ] Node 2: HMAC validation
+  - [ ] Node 3-9: AI analysis pipeline
+- [x] Update n8n webhook URL in Key Vault (completed 2026-01-23)
+- [ ] Test webhook delivery end-to-end with test script
+- [x] Configure n8n credentials (completed 2026-01-22)
 
-### Week 2
-- [ ] Implement `Start-NovusAIAlertOrchestrator`
-- [ ] Implement `Invoke-NovusAIAlertProcessor`
+### Week 2 (CIPP Backend)
+- [ ] Implement `Start-NovusAIAlertOrchestrator` (~100 lines)
+- [ ] Implement `Invoke-NovusAIAlertProcessor` (~100 lines)
 - [ ] Add timer to `CIPPTimers.json`
-- [ ] Build n8n workflow with Claude AI integration
+- [ ] Test orchestrator with real CIPP alerts
 
 ### Future Enhancements
 - [ ] Move compliance mapping to database table (currently hardcoded)
@@ -281,9 +284,11 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 
 - **Implementation Plan**: `C:\Users\jon\.claude\plans\swift-imagining-cat.md`
 - **Key Vault Setup Guide**: `AZURE_KEYVAULT_SETUP.md`
+- **n8n Workflow Guide**: `N8N_WORKFLOW_GUIDE.md` (NEW - Week 2)
 - **Project CLAUDE.md**: `c:\Projects\novus-automation\novus-cipp-prd\CLAUDE.md`
 - **CIPP Documentation**: https://docs.cipp.app/
 - **Anthropic API Docs**: https://docs.anthropic.com/
+- **n8n Documentation**: https://docs.n8n.io/
 
 ---
 
