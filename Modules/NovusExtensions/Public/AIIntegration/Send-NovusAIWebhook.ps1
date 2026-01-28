@@ -1,13 +1,19 @@
-# NOVUS CUSTOM: Enhanced webhook sender for n8n AI integration
+# NOVUS CUSTOM: Enhanced webhook sender for Claude-Flow AI integration
 
 function Send-NovusAIWebhook {
     <#
     .SYNOPSIS
-        Sends enriched alert data to n8n for AI analysis with retry logic and HMAC authentication.
+        Sends enriched alert data to Claude-Flow AI brain with retry logic and HMAC authentication.
 
     .DESCRIPTION
         Core webhook sender that packages CIPP alerts with tenant context and enrichment data,
-        then sends to n8n workflow orchestrator for Claude AI analysis. Implements:
+        then sends to Claude-Flow for intelligent AI analysis. Claude-Flow provides:
+        - Expert agent routing (8 specialized agents)
+        - Pattern learning via SONA + EWC++
+        - Cross-client pattern sharing (anonymized)
+        - Intelligent model routing (75% cost savings)
+
+        Implements:
         - Exponential backoff retry (3 attempts: 2s, 4s, 8s delays)
         - HMAC-SHA256 signature authentication
         - Failure logging to NovusWebhookFailures table
@@ -38,13 +44,16 @@ function Send-NovusAIWebhook {
 
     .NOTES
         Error Handling: Webhook failures are logged to NovusWebhookFailures table for manual review.
-        Alerts continue to flow through existing CIPP channels even if n8n webhook fails.
+        Alerts continue to flow through existing CIPP channels even if Claude-Flow webhook fails.
 
         Security: Webhook URL and secret are retrieved from Azure Key Vault, never hardcoded.
         HMAC signature ensures payload integrity and authenticity.
 
         Performance: Enrichment adds ~2-3 seconds due to API calls. Use -IncludeEnrichment only
         when AI analysis benefits from context (skip for low-priority alerts).
+
+        Architecture: Claude-Flow processes alerts asynchronously, returns correlation ID immediately.
+        Actions are queued for n8n executor (simplified - no AI logic in n8n).
     #>
 
     [CmdletBinding(SupportsShouldProcess = $true)]
@@ -76,20 +85,32 @@ function Send-NovusAIWebhook {
     begin {
         Write-Verbose "Send-NovusAIWebhook: Starting for $EventType ($EventSubType) - Tenant: $TenantFilter"
 
-        # Get webhook URL and secret from Azure Key Vault
+        # Get Claude-Flow webhook URL and secret from Azure Key Vault
         try {
-            $WebhookUrl = Get-ExtensionAPIKey -Extension 'N8N-Webhook-URL'
-            $WebhookSecret = Get-ExtensionAPIKey -Extension 'N8N-Webhook-Secret'
+            # Primary: Claude-Flow webhook endpoint
+            $WebhookUrl = Get-ExtensionAPIKey -Extension 'ClaudeFlow-Webhook-URL'
+            $WebhookSecret = Get-ExtensionAPIKey -Extension 'ClaudeFlow-Webhook-Secret'
+
+            # Fallback to legacy n8n config if Claude-Flow not configured
+            if ([string]::IsNullOrEmpty($WebhookUrl)) {
+                Write-Verbose "Claude-Flow URL not found, checking legacy n8n config..."
+                $WebhookUrl = Get-ExtensionAPIKey -Extension 'N8N-Webhook-URL'
+                $WebhookSecret = Get-ExtensionAPIKey -Extension 'N8N-Webhook-Secret'
+
+                if (![string]::IsNullOrEmpty($WebhookUrl)) {
+                    Write-Warning "Using legacy n8n webhook URL. Please configure 'ClaudeFlow-Webhook-URL' for Claude-Flow integration."
+                }
+            }
 
             if ([string]::IsNullOrEmpty($WebhookUrl)) {
-                throw "N8N webhook URL not configured in Key Vault. Please add 'N8N-Webhook-URL' secret."
+                throw "Webhook URL not configured in Key Vault. Please add 'ClaudeFlow-Webhook-URL' secret."
             }
 
             if ([string]::IsNullOrEmpty($WebhookSecret)) {
-                throw "N8N webhook secret not configured in Key Vault. Please add 'N8N-Webhook-Secret' secret."
+                throw "Webhook secret not configured in Key Vault. Please add 'ClaudeFlow-Webhook-Secret' secret."
             }
 
-            Write-Verbose "Webhook configuration retrieved successfully"
+            Write-Verbose "Webhook configuration retrieved successfully: $($WebhookUrl.Substring(0, [Math]::Min(50, $WebhookUrl.Length)))..."
         } catch {
             Write-Error "Failed to retrieve webhook configuration from Key Vault: $_"
             Write-LogMessage -API 'NovusAIWebhook' -message "Webhook configuration error: $_" -sev Error
@@ -111,13 +132,14 @@ function Send-NovusAIWebhook {
                 eventSubType = $EventSubType
                 timestamp    = $timestamp
                 source       = 'CIPP-Novus'
-                version      = '1.0'
+                version      = '2.0'  # Claude-Flow integration version
                 tenant       = $tenantContext
                 alert        = $AlertData
                 metadata     = @{
-                    cippdUrl          = $env:CIPP_URL ?? 'https://cipp.novustek.io'
+                    cippUrl           = $env:CIPP_URL ?? 'https://cipp.novustek.io'
                     correlationId     = $correlationId
                     webhookRetryCount = 0
+                    integration       = 'claude-flow'  # Target system identifier
                 }
             }
 
