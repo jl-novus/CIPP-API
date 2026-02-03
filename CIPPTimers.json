@@ -263,7 +263,7 @@
     "RunOnProcessor": true,
     "Parameters": {
       "TenantFilter": "deccanintl.onmicrosoft.com",
-      "Recipients": ["jlucky@novustek.io"]
+      "Recipients": ["jon@novustek.net"]
     }
   }
 ]

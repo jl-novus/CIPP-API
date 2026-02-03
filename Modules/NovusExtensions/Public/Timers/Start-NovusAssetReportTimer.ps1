@@ -27,13 +27,13 @@ function Start-NovusAssetReportTimer {
         This is defined in CIPPTimers.json with Id: d3cc4n-4553-7r3p-0r7-n0vu5t3k10
     #>
 
-    [CmdletBinding(SupportsShouldProcess = $true)]
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $false)]
         [string]$TenantFilter = 'deccanintl.onmicrosoft.com',
 
         [Parameter(Mandatory = $false)]
-        [string[]]$Recipients = @('jlucky@novustek.io')
+        [string[]]$Recipients = @('jon@novustek.net')
     )
 
     Write-LogMessage -API 'NovusAssetReportTimer' `
