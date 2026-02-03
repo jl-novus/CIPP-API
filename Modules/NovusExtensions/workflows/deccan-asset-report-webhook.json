@@ -1,0 +1,171 @@
+{
+  "name": "Deccan Asset Report (Webhook)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "asset-report",
+        "responseMode": "onReceived",
+        "responseData": "allEntries",
+        "options": {}
+      },
+      "id": "webhook-receiver",
+      "name": "Receive Asset Report",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [100, 300],
+      "webhookId": "asset-report"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Extract report data from CIPP webhook payload\nconst payload = $input.first().json;\n\n// The payload structure from Send-NovusAssetReport:\n// { eventType, timestamp, source, tenant, report: { summary, devices }, delivery, metadata }\n\nconst report = payload.report || {};\nconst summary = report.summary || {};\nconst devices = report.devices || [];\nconst tenant = payload.tenant || {};\nconst delivery = payload.delivery || {};\n\n// Build AI analysis prompt\nconst prompt = `You are an IT asset analyst for ${tenant.name || 'the client'}, a SOC2-compliant organization.\n\nAnalyze this device inventory and provide:\n1. Executive Summary (2-3 sentences focusing on SOC2 compliance posture)\n2. SOC2 Compliance Status:\n   - Encryption coverage assessment\n   - Device compliance state analysis\n   - Stale device risk evaluation\n3. Key Findings (bullet points, prioritized by risk)\n4. Recommendations (numbered list, prioritized)\n\nFocus on security and SOC2 compliance implications. Be concise but thorough.\n\n## Device Inventory Summary\n- Total Devices: ${summary.totalDevices || 0}\n- Compliant: ${summary.compliant?.count || 0} (${summary.compliant?.percent || 0}%)\n- Non-Compliant: ${summary.nonCompliant?.count || 0} (${summary.nonCompliant?.percent || 0}%)\n- Encrypted: ${summary.encrypted?.count || 0} (${summary.encrypted?.percent || 0}%)\n- Stale Devices (>${summary.stale?.threshold || 7} days): ${summary.stale?.count || 0}\n\n## OS Distribution\n${summary.osDistribution ? Object.entries(summary.osDistribution).map(([os, count]) => \\`- ${os}: ${count}\\`).join('\\n') : 'N/A'}\n\n## Stale Devices (if any)\n${summary.stale?.devices?.length > 0 ? summary.stale.devices.map(d => \\`- ${d.deviceName} (${d.userPrincipalName}): ${d.daysSinceSync} days since sync\\`).join('\\n') : 'None'}\n\n## Non-Compliant Devices (if any)\n${devices.filter(d => d.complianceState === 'noncompliant').map(d => \\`- ${d.deviceName} (${d.user})\\`).join('\\n') || 'None'}\n\nProvide actionable insights for the weekly SOC2 compliance review.`;\n\nreturn [{\n  json: {\n    model: 'claude-sonnet-4-5-20250929',\n    max_tokens: 2048,\n    temperature: 0.3,\n    messages: [\n      {\n        role: 'user',\n        content: prompt\n      }\n    ],\n    _reportData: {\n      tenant: tenant,\n      summary: summary,\n      devices: devices,\n      delivery: delivery,\n      reportDate: report.reportDate || payload.timestamp,\n      correlationId: payload.correlationId\n    }\n  }\n}];"
+      },
+      "id": "build-ai-prompt",
+      "name": "Build AI Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $json.model, max_tokens: $json.max_tokens, temperature: $json.temperature, messages: $json.messages }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "claude-analysis",
+      "name": "Claude AI Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const claudeResponse = $input.first().json;\nconst reportData = $('Build AI Prompt').first().json._reportData;\n\n// Extract AI analysis text\nlet aiAnalysis = '';\ntry {\n  aiAnalysis = claudeResponse.content[0].text;\n} catch (e) {\n  aiAnalysis = 'AI analysis unavailable: ' + e.message;\n}\n\nreturn [{\n  json: {\n    tenant: reportData.tenant,\n    summary: reportData.summary,\n    devices: reportData.devices,\n    delivery: reportData.delivery,\n    reportDate: reportData.reportDate,\n    correlationId: reportData.correlationId,\n    aiAnalysis: aiAnalysis,\n    claudeMetadata: {\n      model: claudeResponse.model,\n      usage: claudeResponse.usage,\n      stopReason: claudeResponse.stop_reason\n    }\n  }\n}];"
+      },
+      "id": "parse-ai-response",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const data = $input.first().json;\nconst reportDate = new Date(data.reportDate);\nconst formattedDate = reportDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });\nconst tenantName = data.tenant?.name || 'Client';\n\n// Build HTML email\nconst html = `\n<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; }\n    .header { background: linear-gradient(135deg, #1a5276, #2e86c1); color: white; padding: 20px; border-radius: 8px 8px 0 0; }\n    .header h1 { margin: 0; font-size: 24px; }\n    .header p { margin: 5px 0 0; opacity: 0.9; }\n    .content { background: #f8f9fa; padding: 20px; }\n    .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin: 20px 0; }\n    .metric { background: white; padding: 15px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }\n    .metric-value { font-size: 28px; font-weight: bold; color: #2e86c1; }\n    .metric-label { font-size: 12px; color: #666; text-transform: uppercase; }\n    .metric.alert { border-left: 4px solid #e74c3c; }\n    .metric.success { border-left: 4px solid #27ae60; }\n    .section { background: white; padding: 20px; margin: 15px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }\n    .section h2 { margin-top: 0; color: #1a5276; border-bottom: 2px solid #e8e8e8; padding-bottom: 10px; }\n    table { width: 100%; border-collapse: collapse; font-size: 13px; }\n    th { background: #1a5276; color: white; padding: 10px; text-align: left; }\n    td { padding: 8px 10px; border-bottom: 1px solid #eee; }\n    tr:hover { background: #f5f5f5; }\n    .ai-analysis { white-space: pre-wrap; line-height: 1.8; }\n    .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }\n    .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }\n    .badge-compliant { background: #d4edda; color: #155724; }\n    .badge-noncompliant { background: #f8d7da; color: #721c24; }\n  </style>\n</head>\n<body>\n  <div class=\"header\">\n    <h1>Weekly Asset Report</h1>\n    <p>${tenantName} | ${formattedDate}</p>\n  </div>\n  \n  <div class=\"content\">\n    <div class=\"metrics\">\n      <div class=\"metric\">\n        <div class=\"metric-value\">${data.summary?.totalDevices || 0}</div>\n        <div class=\"metric-label\">Total Devices</div>\n      </div>\n      <div class=\"metric success\">\n        <div class=\"metric-value\">${data.summary?.compliant?.percent || 0}%</div>\n        <div class=\"metric-label\">Compliant</div>\n      </div>\n      <div class=\"metric ${(data.summary?.nonCompliant?.count || 0) > 0 ? 'alert' : ''}\">\n        <div class=\"metric-value\">${data.summary?.nonCompliant?.count || 0}</div>\n        <div class=\"metric-label\">Non-Compliant</div>\n      </div>\n      <div class=\"metric success\">\n        <div class=\"metric-value\">${data.summary?.encrypted?.percent || 0}%</div>\n        <div class=\"metric-label\">Encrypted</div>\n      </div>\n      <div class=\"metric ${(data.summary?.stale?.count || 0) > 0 ? 'alert' : ''}\">\n        <div class=\"metric-value\">${data.summary?.stale?.count || 0}</div>\n        <div class=\"metric-label\">Stale (>7d)</div>\n      </div>\n    </div>\n    \n    <div class=\"section\">\n      <h2>AI Analysis & Recommendations</h2>\n      <div class=\"ai-analysis\">${data.aiAnalysis.replace(/\\n/g, '<br>')}</div>\n    </div>\n    \n    <div class=\"section\">\n      <h2>Device Inventory (${data.devices?.length || 0} devices)</h2>\n      <table>\n        <thead>\n          <tr>\n            <th>Device Name</th>\n            <th>Model</th>\n            <th>OS</th>\n            <th>User</th>\n            <th>Status</th>\n            <th>Encrypted</th>\n            <th>Last Sync</th>\n          </tr>\n        </thead>\n        <tbody>\n          ${(data.devices || []).slice(0, 50).map(d => `\n          <tr>\n            <td>${d.deviceName || ''}</td>\n            <td>${d.model || ''}</td>\n            <td>${d.os || ''}</td>\n            <td>${d.user || ''}</td>\n            <td><span class=\"badge badge-${d.complianceState || 'unknown'}\">${d.complianceState || 'N/A'}</span></td>\n            <td>${d.isEncrypted || 'N/A'}</td>\n            <td>${d.lastSync ? new Date(d.lastSync).toLocaleDateString() : 'N/A'}</td>\n          </tr>`).join('')}\n          ${(data.devices?.length || 0) > 50 ? '<tr><td colspan=\"7\" style=\"text-align:center;font-style:italic;\">... and ' + ((data.devices?.length || 0) - 50) + ' more devices (see attached CSV)</td></tr>' : ''}\n        </tbody>\n      </table>\n    </div>\n  </div>\n  \n  <div class=\"footer\">\n    <p>Generated by CIPP + Claude AI | Novus Technology Integration</p>\n    <p>SOC2 Compliance Reporting | ${formattedDate}</p>\n    <p style=\"font-size: 10px; color: #999;\">Correlation ID: ${data.correlationId || 'N/A'}</p>\n  </div>\n</body>\n</html>\n`;\n\n// Build CSV for attachment\nconst csvHeader = 'Device Name,Serial Number,Model,OS,OS Version,User,Compliance,Encrypted,Last Sync';\nconst csvRows = (data.devices || []).map(d => \n  `\"${d.deviceName || ''}\",\"${d.serialNumber || ''}\",\"${d.model || ''}\",\"${d.os || ''}\",\"${d.osVersion || ''}\",\"${d.user || ''}\",\"${d.complianceState || ''}\",\"${d.isEncrypted || ''}\",\"${d.lastSync || ''}\"`\n);\nconst csv = csvHeader + '\\n' + csvRows.join('\\n');\n\nreturn [{\n  json: {\n    recipients: data.delivery?.recipients || ['jlucky@novustek.io'],\n    subject: `${tenantName} Weekly Asset Report - ${formattedDate}`,\n    html,\n    csv,\n    csvFileName: `${tenantName.toLowerCase().replace(/\\s+/g, '-')}-device-inventory-${reportDate.toISOString().split('T')[0]}.csv`\n  }\n}];"
+      },
+      "id": "format-html",
+      "name": "Format HTML Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.recipients.join(', ') }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "message": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "send-email",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "content": "## Deccan Asset Report - Webhook Receiver\n\nThis workflow receives device inventory data from CIPP and generates AI-analyzed reports.\n\n### Flow:\n1. **Webhook** - Receives POST from CIPP's Send-NovusAssetReport function\n2. **Build AI Prompt** - Creates analysis prompt from device data\n3. **Claude Analysis** - Gets AI insights (Sonnet 4.5)\n4. **Parse Response** - Extracts analysis text\n5. **Format HTML** - Builds email with metrics, AI analysis, device table\n6. **Send Email** - Delivers report\n\n### Webhook URL:\n`https://n8n-nov-sb1-u65757.vm.elestio.app/webhook/asset-report`\n\n### Credentials Required:\n- Anthropic API Key (for Claude)\n- SMTP (for email delivery)\n\n### CIPP Configuration:\nAdd to Azure Key Vault:\n- `N8N-AssetReport-Webhook-URL`: The webhook URL above\n- `N8N-Webhook-Secret`: HMAC signing secret (optional)"
+      },
+      "id": "sticky-note",
+      "name": "Workflow Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [100, 100]
+    }
+  ],
+  "connections": {
+    "Receive Asset Report": {
+      "main": [
+        [
+          {
+            "node": "Build AI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Prompt": {
+      "main": [
+        [
+          {
+            "node": "Claude AI Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude AI Analysis": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Format HTML Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format HTML Report": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "triggerCount": 1
+}

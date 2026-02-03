@@ -253,5 +253,17 @@
     "Priority": 23,
     "RunOnProcessor": true,
     "IsSystem": true
+  },
+  {
+    "Id": "d3cc4n-4553-7r3p-0r7-n0vu5t3k10",
+    "Command": "Start-NovusAssetReportTimer",
+    "Description": "NOVUS CUSTOM: Send weekly device inventory report for Deccan International to n8n for AI analysis",
+    "Cron": "0 0 8 * * 1",
+    "Priority": 15,
+    "RunOnProcessor": true,
+    "Parameters": {
+      "TenantFilter": "deccanintl.onmicrosoft.com",
+      "Recipients": ["jlucky@novustek.io"]
+    }
   }
 ]

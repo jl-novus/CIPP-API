@@ -28,8 +28,22 @@
 
     # Functions to export from this module
     FunctionsToExport = @(
+        # Core webhook functions
         'Send-NovusWebhook'
-        # Add additional exported functions here as they are created
+        'Send-NovusAIWebhook'
+
+        # AI Integration
+        'Get-NovusHMACSignature'
+        'Get-NovusTenantContext'
+        'Get-NovusAlertEnrichment'
+
+        # Reporting
+        'Send-NovusAssetReport'
+        'Get-NovusDeviceInventory'
+
+        # Timer functions
+        'Start-NovusAssetReportTimer'
+        'Start-NovusAIAlertOrchestrator'
     )
 
     # Cmdlets to export from this module
