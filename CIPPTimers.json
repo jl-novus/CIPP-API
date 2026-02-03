@@ -72,6 +72,19 @@
     "RunOnProcessor": true
   },
   {
+    "Id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "Command": "Start-NovusAIAlertOrchestrator",
+    "Description": "NOVUS CUSTOM: Process CIPP alerts through AI analysis pipeline (n8n + Claude)",
+    "Cron": "0 */5 * * * *",
+    "Priority": 3,
+    "RunOnProcessor": true,
+    "Parameters": {
+      "MaxAlerts": 50,
+      "LookbackHours": 1,
+      "IncludeEnrichment": true
+    }
+  },
+  {
     "Id": "9b0c8e50-f798-49db-9a8b-dbcc0fcadeea",
     "Command": "Start-StandardsOrchestrator",
     "Description": "Orchestrator to process standards",
