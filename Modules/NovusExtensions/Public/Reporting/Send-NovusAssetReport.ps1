@@ -53,7 +53,7 @@ function Send-NovusAssetReport {
         [int]$StaleDays = 7,
 
         [Parameter(Mandatory = $false)]
-        [string[]]$Recipients = @('jlucky@novustek.io')
+        [string[]]$Recipients = @('jon@novustek.net')
     )
 
     begin {
