@@ -2,7 +2,7 @@
 
 ## Overview
 This document provides a quick reference for all secrets and API keys used by NovusExtensions.
-**Last Updated:** 2026-02-03
+**Last Updated:** 2026-02-04
 
 ---
 
@@ -44,9 +44,20 @@ This Key Vault is for AI operations and M365 app credentials.
 - **API Key Location:** `cippdxfje` Key Vault → `N8N-API-Key`
 
 #### Active Workflows
-| Workflow ID | Name | Purpose |
-|-------------|------|---------|
-| `7qhfWgDV9OeuaszK` | CIPP Asset Report with AI Analysis | Weekly Deccan device compliance report |
+| Workflow ID | Name | Purpose | Status |
+|-------------|------|---------|--------|
+| `7qhfWgDV9OeuaszK` | Deccan Asset Report (with Attachment) | Weekly SOC2 device compliance report | **WORKING** |
+
+#### Webhook Endpoints
+| Endpoint | URL | Purpose |
+|----------|-----|---------|
+| Asset Report | `https://n8n-nov-sb1-u65757.vm.elestio.app/webhook/asset-report` | Receives device inventory data, triggers AI analysis |
+
+#### Workflow Details (7qhfWgDV9OeuaszK)
+- **Trigger:** POST webhook at `/webhook/asset-report`
+- **AI Model:** `claude-3-haiku-20240307` (hardcoded API key in workflow)
+- **Output:** HTML email with AI analysis + CSV attachment
+- **Recipients:** Configurable via `delivery.recipients` in payload
 
 ### Claude-Flow (AI Orchestration)
 - **VM:** vm-claude-flow-gpu (100.84.132.24)
