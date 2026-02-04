@@ -5,6 +5,95 @@
 
 ---
 
+## ✅ NEW: Deccan Asset Report (2026-02-03) - DEPLOYED
+
+### Feature Overview
+
+Automated weekly asset management reporting for Deccan International (SOC2 compliance):
+- **Schedule**: Weekly (Monday 8:00 AM UTC)
+- **Architecture**: CIPP pushes to n8n webhook (no external auth needed)
+- **Analysis**: Claude AI generates compliance insights
+- **Delivery**: HTML email with device inventory and AI recommendations
+
+### Files Created
+
+| File | Status | Purpose |
+|------|--------|---------|
+| `Public/Reporting/Send-NovusAssetReport.ps1` | ✅ Deployed | Pulls Intune data, sends to n8n webhook |
+| `Public/Reporting/Get-NovusDeviceInventory.ps1` | ✅ Deployed | PowerShell wrapper for Intune device inventory |
+| `Public/Timers/Start-NovusAssetReportTimer.ps1` | ✅ Deployed | Timer wrapper for CIPP scheduler |
+| `workflows/deccan-asset-report-webhook.json` | ✅ Active | n8n workflow (6 nodes) |
+| `CIPPTimers.json` | ✅ Modified | Added weekly schedule entry |
+| `docs/DECCAN-ASSET-REPORT-DESIGN.md` | ✅ Complete | Design document |
+
+### Architecture (Push-based)
+
+```
+CIPP Timer (Mon 8am UTC)
+         ↓
+Start-NovusAssetReportTimer
+         ↓
+Send-NovusAssetReport (pulls Intune data internally)
+         ↓
+n8n Webhook (POST /webhook/asset-report)
+         ↓
+Build AI Prompt (SOC2 focus)
+         ↓
+Claude AI Analysis (Sonnet 4.5)
+         ↓
+Parse AI Response
+         ↓
+Format HTML Report (+ CSV)
+         ↓
+Send Email (SMTP)
+```
+
+### Configuration
+
+| Component | Value |
+|-----------|-------|
+| n8n Workflow ID | `7qhfWgDV9OeuaszK` |
+| Webhook URL | `https://n8n-nov-sb1-u65757.vm.elestio.app/webhook/asset-report` |
+| Key Vault Secret | `N8N-AssetReport-Webhook-URL` |
+| Timer ID | `d3cc4n-4553-7r3p-0r7-n0vu5t3k10` |
+| Cron Schedule | `0 0 8 * * 1` (Mon 8am UTC) |
+| Recipient | jlucky@novustek.io |
+
+### Metrics Tracked
+
+- Total device count
+- Compliance rate (compliant %)
+- Non-compliant devices (count + list)
+- Encryption coverage (%)
+- Stale devices (>7 days no sync)
+- OS distribution
+
+### Cost Estimate
+
+| Component | Per Report | Annual |
+|-----------|-----------|--------|
+| Claude AI | ~$0.05 | ~$2.40 |
+| Graph API | Free | Free |
+| **Total** | **~$0.05** | **~$2.40** |
+
+### Deployment Status
+
+- [x] PowerShell functions created
+- [x] n8n workflow uploaded and activated
+- [x] Key Vault secret configured
+- [x] Timer entry added to CIPPTimers.json
+- [x] CIPP-API deployed (commit 2a4e1f61d)
+- [x] Test email sent (2026-02-03)
+
+### Expansion Plan
+
+After Deccan pilot:
+- Arete Health (HIPAA focus)
+- IGOE Company (HIPAA focus)
+- CafeMoto, Plenum Plus (standard reporting)
+
+---
+
 ## Overview
 
 AI-driven security automation integration between CIPP, n8n, and Claude AI for Novus Technology Integration MSP clients.
@@ -336,6 +425,8 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 - **Implementation Plan**: `C:\Users\jon\.claude\plans\swift-imagining-cat.md`
 - **Key Vault Setup Guide**: `AZURE_KEYVAULT_SETUP.md`
 - **n8n Workflow Guide**: `N8N_WORKFLOW_GUIDE.md` (NEW - Week 2)
+- **Deccan Asset Report Design**: `docs/DECCAN-ASSET-REPORT-DESIGN.md` (NEW - 2026-02-03)
+- **Deccan Asset Report Import Guide**: `docs/DECCAN-ASSET-REPORT-IMPORT.md` (NEW - 2026-02-03)
 - **Project CLAUDE.md**: `c:\Projects\novus-automation\novus-cipp-prd\CLAUDE.md`
 - **CIPP Documentation**: https://docs.cipp.app/
 - **Anthropic API Docs**: https://docs.anthropic.com/
